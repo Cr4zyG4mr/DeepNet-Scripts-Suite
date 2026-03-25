@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DeepNet Data Dealer
 // @namespace    https://macinsight.github.io/deepwiki/modding/
-// @version      1.1
+// @version      1.1.0
 // @description  File management and bulk selling for DeepNet (API-driven)
 // @author       Rain
 // @match        https://deepnet.us/*
