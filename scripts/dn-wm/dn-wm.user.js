@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DeepNet Script Window Manager
 // @namespace    https://macinsight.github.io/deepwiki/modding/
-// @version      5.0.3
-// @description  Window framework: panel lifecycle, shared API, z-stacking, anchor snapping, position persistence, terminal focus
+// @version      5.1.0
+// @description  Window framework: panel lifecycle, shared API, z-stacking, anchor snapping, position persistence, terminal focus, icon grid snap
 // @author       Rain
 // @match        https://deepnet.us/*
 // @grant        none
@@ -225,6 +225,26 @@
     // ═══════════════════════════════════════════════════════════
     //  ICON HELPERS
     // ═══════════════════════════════════════════════════════════
+    // ─── Grid layout ───
+    function getGrid() {
+        const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+        const vw = window.innerWidth / 100;
+        const iconBoxW = Math.min(6.0 * rem, Math.max(3.8 * rem, 5.2 * vw));
+        const iconGfxH = Math.min(3.7 * rem, Math.max(2.1 * rem, 3.3 * vw));
+        return {
+            cellW: iconBoxW,
+            cellH: iconGfxH + 2.4 * rem,
+            padX: 0.3 * rem,
+            padY: 0.3 * rem
+        };
+    }
+    function snapToGrid(x, y) {
+        const g = getGrid();
+        const col = Math.max(0, Math.round((x - g.padX) / g.cellW));
+        const row = Math.max(0, Math.round((y - g.padY) / g.cellH));
+        return { x: g.padX + col * g.cellW, y: g.padY + row * g.cellH };
+    }
+
     let _sawDeepOS = false;
     function isDeepOSPending() {
         const p = window._deeposBootPending || document.body.classList.contains('deepos-active') || (window._DOS && window._DOS.active);
@@ -254,6 +274,78 @@
         document.addEventListener('mousemove', e => { if (!d) return; if (!m && Math.abs(e.clientX - (ox + parseInt(icon.style.left || 0))) < 3 && Math.abs(e.clientY - (oy + parseInt(icon.style.top || 0))) < 3) return; m = true; const p = icon.parentElement.getBoundingClientRect(); icon.style.left = Math.max(0, Math.min(e.clientX - ox, p.width - icon.offsetWidth)) + 'px'; icon.style.top = Math.max(0, Math.min(e.clientY - oy, p.height - icon.offsetHeight)) + 'px'; });
         document.addEventListener('mouseup', () => { if (!d) return; if (m) { saveIconPositions(); w = true; setTimeout(() => { w = false; }, 400); } d = false; m = false; });
         return () => w;
+    }
+
+    // ─── Icon grid snap-on-drop + swap ───
+    let _gridDragIcon = null, _gridDragOrigin = null;
+    document.addEventListener('mousedown', (e) => {
+        const icon = e.target.closest('#deepos-icons .deepos-icon');
+        if (!icon || e.button !== 0) return;
+        _gridDragIcon = icon;
+        const x = parseInt(icon.style.left) || 0, y = parseInt(icon.style.top) || 0;
+        _gridDragOrigin = snapToGrid(x, y);
+    }, true);
+    document.addEventListener('mouseup', () => {
+        if (!_gridDragIcon) return;
+        const movedIcon = _gridDragIcon, origin = _gridDragOrigin;
+        _gridDragIcon = null; _gridDragOrigin = null;
+        requestAnimationFrame(() => {
+            const icons = document.querySelectorAll('#deepos-icons .deepos-icon');
+            if (!icons.length) return;
+            const dropX = parseInt(movedIcon.style.left) || 0, dropY = parseInt(movedIcon.style.top) || 0;
+            const target = snapToGrid(dropX, dropY);
+            if (origin && target.x === origin.x && target.y === origin.y) {
+                movedIcon.style.left = target.x + 'px'; movedIcon.style.top = target.y + 'px';
+                saveIconPositions(); return;
+            }
+            let occupant = null;
+            icons.forEach(icon => {
+                if (icon === movedIcon) return;
+                const snap = snapToGrid(parseInt(icon.style.left) || 0, parseInt(icon.style.top) || 0);
+                if (snap.x === target.x && snap.y === target.y) occupant = icon;
+            });
+            if (occupant && origin) {
+                occupant.style.left = origin.x + 'px'; occupant.style.top = origin.y + 'px';
+            }
+            movedIcon.style.left = target.x + 'px'; movedIcon.style.top = target.y + 'px';
+            saveIconPositions();
+        });
+    }, false);
+
+    // ─── Snap all icons on initial load ───
+    function snapAllOnLoad() {
+        const iconsDiv = document.querySelector('#deepos-icons');
+        if (!iconsDiv || iconsDiv.children.length === 0 ||
+            !document.body.classList.contains('deepos-active')) {
+            setTimeout(snapAllOnLoad, 1000); return;
+        }
+        setTimeout(() => {
+            const icons = document.querySelectorAll('#deepos-icons .deepos-icon');
+            const occupied = new Map();
+            icons.forEach(icon => {
+                const x = parseInt(icon.style.left) || 0, y = parseInt(icon.style.top) || 0;
+                const snap = snapToGrid(x, y);
+                const key = `${snap.x},${snap.y}`;
+                if (occupied.has(key)) {
+                    const g = getGrid();
+                    const maxRows = Math.max(1, Math.floor((window.innerHeight - 40) / g.cellH));
+                    const maxCols = Math.max(1, Math.floor(window.innerWidth / g.cellW));
+                    let bestDist = Infinity;
+                    for (let c = 0; c < maxCols; c++) {
+                        for (let r = 0; r < maxRows; r++) {
+                            const cx = g.padX + c * g.cellW, cy = g.padY + r * g.cellH;
+                            if (!occupied.has(`${cx},${cy}`)) {
+                                const dist = Math.abs(cx - snap.x) + Math.abs(cy - snap.y);
+                                if (dist < bestDist) { bestDist = dist; snap.x = cx; snap.y = cy; }
+                            }
+                        }
+                    }
+                }
+                occupied.set(`${snap.x},${snap.y}`, true);
+                icon.style.left = snap.x + 'px'; icon.style.top = snap.y + 'px';
+            });
+            saveIconPositions();
+        }, 500);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -818,6 +910,8 @@
     injectSharedStyles();
     // Fire ready when logged in
     const readyCheck = setInterval(() => { if (isLoggedIn()) { clearInterval(readyCheck); _fireReady(); } }, 500);
+    // Snap desktop icons to grid on load
+    setTimeout(snapAllOnLoad, 3000);
 
-    console.log('[WM] v5.0.3 — Framework + anchor snap + position persistence + terminal focus');
+    console.log('[WM] v5.1.0 — Framework + anchor snap + position persistence + terminal focus + icon grid snap');
 })();
