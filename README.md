@@ -19,4 +19,4 @@ A collection of userscripts for [DeepNet](https://deepnet.us) built around a sha
 
 ## License
 
-[The Unlicense](LICENSE.txt) — public domain.
+[The Unlicense](https://unlicense.org) — public domain.
